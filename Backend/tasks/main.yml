@@ -1,0 +1,56 @@
+- name: Disable default version of NodeJS
+  ansible.builtin.shell: dnf module disable nodejs -y
+
+- name: Enable NodeJS18 version
+  ansible.builtin.shell: dnf module enable nodejs:18 -y
+
+- name: Install the new NodeJS default version (which is version 18)
+  ansible.builtin.dnf:
+    name: nodejs
+    state: installed
+
+- name: Configure backend
+  ansible.builtin.template:
+    src: backend.service
+    dest: /etc/systemd/system/backend.service
+
+- name: Adding application user
+  ansible.builtin.user:
+    name: expense
+
+- name: App pre-requisites
+  ansible.builtin.include_role:
+    name: common  # the name of the role
+    tasks_from: app_pre-req  # the task name inside the role
+
+- name: Download Dependencies
+  community.general.npm:
+    path: /app
+
+- name: Reloading Systemd and Start Backend service
+  ansible.builtin.systemd_service:
+    name: backend
+    state: restarted
+    enabled: yes
+
+- name: Install Mysql Client Python library for Mysql module in ansible (python3-PyMySQL.noarch)
+  ansible.builtin.dnf:
+    name: "{{item}}"
+    state: installed
+  loop:
+    - mysql
+    - python3-PyMySQL
+
+# The load schema task will throw an error if we don't install Python library for MySql because
+# the module mysql_db is not an Ansible module, it comes from the community.mysql collection version 3.8.0
+# This collection might comes with ansible but it is not included in ansible-core.
+# Either way to use this module there is further requirements.
+
+- name: Load Schema
+  community.mysql.mysql_db:
+    state: import
+    name: all
+    target: /app/schema/backend.sql
+    login_user: root
+    login_password: "{{ lookup('amazon.aws.aws_ssm', 'dev.mysql.root_password', region='us-east-1' ) }}"
+    login_host: mysql.thedevopsengineer.site
